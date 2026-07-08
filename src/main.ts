@@ -295,6 +295,29 @@ function advanceShufflePosition(): number {
   return state.shuffledOrder[state.shufflePosition];
 }
 
+const PREFETCH_COUNT = 3;
+
+// Peeks ahead in the shuffle order without mutating it. Stops at the order's end rather
+// than simulating a reshuffle, since that reshuffle hasn't actually happened yet.
+function peekUpcomingImagePaths(count: number): string[] {
+  const upcoming: string[] = [];
+  for (let i = 1; i <= count; i++) {
+    const position = state.shufflePosition + i;
+    if (position >= state.shuffledOrder.length) {
+      break;
+    }
+    upcoming.push(state.imagePaths[state.shuffledOrder[position]]);
+  }
+  return upcoming;
+}
+
+function prefetchUpcomingImages() {
+  const upcoming = peekUpcomingImagePaths(PREFETCH_COUNT);
+  if (upcoming.length > 0) {
+    void invoke("prefetch_images", { imagePaths: upcoming }).catch(() => {});
+  }
+}
+
 async function renderCurrentImage(index: number) {
   const imagePath = state.imagePaths[index];
   const fileName = imagePath.split(/[/\\]/).pop() ?? imagePath;
@@ -344,6 +367,7 @@ async function showRandomImage() {
 
   try {
     await renderCurrentImage(nextIndex);
+    prefetchUpcomingImages();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setViewerMessage("The selected image could not be displayed.");
@@ -361,6 +385,7 @@ async function showPreviousImage() {
 
   try {
     await renderCurrentImage(index);
+    prefetchUpcomingImages();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setViewerMessage("The selected image could not be displayed.");
@@ -427,7 +452,7 @@ async function refreshImages() {
 
   if (imagePaths.length === 0) {
     currentImageName.textContent = "No supported images found";
-    setViewerMessage("No .jpg, .jpeg, .gif, .png, or .webp files were found in the selected directory.");
+    setViewerMessage("No .jpg, .jpeg, .gif, .png, .webp, .heic, or .heif files were found in the selected directory.");
     setViewerStatus("Directory scanned, but it contained no supported images.");
     updateImageCounter();
     resetTimer();

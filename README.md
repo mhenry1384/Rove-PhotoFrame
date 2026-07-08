@@ -8,7 +8,7 @@ A desktop slideshow app built with [Tauri](https://tauri.app) and TypeScript. Po
 
 ### Slideshow
 - Shuffled playback — every image is shown once before any repeats
-- Recursive subfolder scanning (`.jpg`, `.jpeg`, `.gif`, `.png`, `.webp`)
+- Recursive subfolder scanning (`.jpg`, `.jpeg`, `.gif`, `.png`, `.webp`, `.heic`, `.heif`)
 - Configurable interval: 1, 5, 15, 30, or 60 minutes
 - Previous / pause / next controls
 - Blurred background fill behind each photo
@@ -17,6 +17,9 @@ A desktop slideshow app built with [Tauri](https://tauri.app) and TypeScript. Po
 - **Maximized mode** — expands the photo to fill the full window, hiding the status bar
 - **Path overlay** — shows the subfolder path at the bottom-left corner (maximized mode only)
 - **Date overlay** — reads the EXIF `DateTimeOriginal` tag and displays the date (JPEG only, maximized mode only)
+
+### HEIC/HEIF support
+WebView2 can't render HEIC/HEIF natively, so those files are decoded on the Rust side via the Windows Imaging Component and re-encoded as JPEG — this requires the OS to have the "HEIF Image Extensions" codec installed (present by default on most Windows 10/11 installs, but not guaranteed). Converted JPEGs are cached in a per-process temp directory, keyed by a hash of the original path, so a photo is never reconverted twice in one run. After each photo is shown, the next few upcoming photos in the shuffle order are pre-converted in the background so they're ready by the time the slideshow reaches them.
 
 ### Foreground nudge
 When the app is unfocused, it can periodically raise itself to the foreground without stealing keyboard focus. Configurable interval: Never, 1, 5, 15, or 60 minutes.
@@ -66,9 +69,11 @@ npm run tauri build
 |---|---|---|
 | `settings.json` | Platform app-config dir | Directory, interval, nudge settings, overlay preferences |
 | `window-state.json` | Platform app-config dir | Window position and size |
+| Converted HEIC/HEIF JPEGs | `%TEMP%\photoframe_<pid>\` | Cached JPEG conversions, cleared on app close |
 
 ## Built with
 
 - [Tauri 2](https://tauri.app) — native shell
 - [Vite](https://vitejs.dev) + TypeScript — frontend
 - [kamadak-exif](https://crates.io/crates/kamadak-exif) — EXIF date reading
+- [image](https://crates.io/crates/image) + [windows](https://crates.io/crates/windows) — HEIC/HEIF decoding via Windows Imaging Component
