@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 type AppSettings = {
   directoryPath: string;
@@ -115,6 +115,7 @@ const viewerStatus = requireElement(elements.viewerStatus, "#viewer-status");
 
 let isWindowCovered = false;
 let nativeCoverageListenerReady = false;
+let imageContextMenu: HTMLElement | null = null;
 
 type WindowCoverageEvent = {
   covered: boolean;
@@ -160,6 +161,78 @@ function setSettingsStatus(message: string, isError = false) {
 function setViewerStatus(message: string, isError = false) {
   viewerStatus.textContent = message;
   viewerStatus.dataset.error = isError ? "true" : "false";
+}
+
+function currentImagePath(): string | null {
+  return state.currentImageIndex === null ? null : state.imagePaths[state.currentImageIndex] ?? null;
+}
+
+function closeImageContextMenu() {
+  imageContextMenu?.remove();
+  imageContextMenu = null;
+}
+
+async function copyCurrentImage() {
+  const imagePath = currentImagePath();
+  if (!imagePath) {
+    return;
+  }
+
+  await invoke("copy_image_to_clipboard", { imagePath });
+  setViewerStatus("Image copied to the clipboard.");
+}
+
+async function downloadCurrentImage() {
+  const imagePath = currentImagePath();
+  if (!imagePath) {
+    return;
+  }
+
+  const fileName = imagePath.split(/[/\\]/).pop() ?? "image";
+  const extension = fileName.split(".").pop()?.toLowerCase() ?? "image";
+  const destinationPath = await saveDialog({
+    defaultPath: `./${fileName}`,
+    filters: [{ name: "Image", extensions: [extension] }],
+  });
+
+  if (typeof destinationPath !== "string") {
+    return;
+  }
+
+  await invoke("copy_image_to_path", { imagePath, destinationPath });
+  setViewerStatus(`Saved ${fileName}.`);
+}
+
+function addImageContextMenuAction(menu: HTMLElement, label: string, action: () => Promise<void>) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "image-context-menu-action";
+  button.textContent = label;
+  button.addEventListener("click", () => {
+    closeImageContextMenu();
+    void action().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setViewerStatus(message, true);
+    });
+  });
+  menu.append(button);
+}
+
+function showImageContextMenu(event: MouseEvent) {
+  event.preventDefault();
+  closeImageContextMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "image-context-menu";
+  menu.setAttribute("role", "menu");
+  addImageContextMenuAction(menu, "Copy Image", copyCurrentImage);
+  addImageContextMenuAction(menu, "Download Image", downloadCurrentImage);
+  document.body.append(menu);
+
+  const { width, height } = menu.getBoundingClientRect();
+  menu.style.left = `${Math.min(event.clientX, window.innerWidth - width - 8)}px`;
+  menu.style.top = `${Math.min(event.clientY, window.innerHeight - height - 8)}px`;
+  imageContextMenu = menu;
 }
 
 function syncImageMaximizedState() {
@@ -509,6 +582,22 @@ photo.addEventListener("error", () => {
   setViewerMessage("The current image failed to load.");
   setViewerStatus("Image decoding failed in the webview.", true);
 });
+
+photo.addEventListener("contextmenu", showImageContextMenu);
+
+window.addEventListener("pointerdown", (event) => {
+  if (imageContextMenu && !imageContextMenu.contains(event.target as Node)) {
+    closeImageContextMenu();
+  }
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeImageContextMenu();
+  }
+});
+
+window.addEventListener("resize", closeImageContextMenu);
 
 settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();

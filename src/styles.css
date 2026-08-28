@@ -363,6 +363,38 @@ input[type="range"] {
   display: none;
 }
 
+.image-context-menu {
+  position: fixed;
+  z-index: 10;
+  display: grid;
+  min-width: 10rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(255, 236, 212, 0.22);
+  border-radius: 8px;
+  background: rgba(37, 24, 25, 0.98);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.36);
+}
+
+.image-context-menu-action {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  color: #fff1dd;
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.image-context-menu-action:hover,
+.image-context-menu-action:focus-visible {
+  transform: none;
+  background: rgba(241, 170, 104, 0.18);
+  box-shadow: none;
+}
+
 .photo-info-overlay {
   display: none;
   position: absolute;

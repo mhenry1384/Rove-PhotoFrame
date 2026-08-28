@@ -1,6 +1,7 @@
 use exif;
 use serde::{Deserialize, Serialize};
 use std::{
+    borrow::Cow,
     collections::hash_map::DefaultHasher,
     fs,
     hash::{Hash, Hasher},
@@ -21,6 +22,7 @@ static TEMP_DIR: OnceLock<PathBuf> = OnceLock::new();
 static PREFETCH_TX: OnceLock<Mutex<mpsc::Sender<String>>> = OnceLock::new();
 
 // Max pixel dimension for converted HEIC — keeps decoding fast on large sensor photos.
+#[cfg(windows)]
 const HEIC_MAX_DIM: u32 = 2048;
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -139,18 +141,21 @@ fn ensure_heic_cached(path: &Path) -> Result<PathBuf, String> {
     Ok(temp_path)
 }
 
+#[cfg(windows)]
 fn convert_heic_to_jpeg(heic_path: &str, jpeg_path: &str) -> Result<(), String> {
     use windows::{
         core::PCWSTR,
         Win32::{
             Foundation::GENERIC_READ,
             Graphics::Imaging::{
-                CLSID_WICImagingFactory, IWICBitmapScaler, IWICFormatConverter,
-                IWICImagingFactory, WICBitmapDitherTypeNone, WICBitmapInterpolationModeFant,
-                WICBitmapPaletteTypeMedianCut, WICDecodeMetadataCacheOnDemand, WICRect,
-                GUID_WICPixelFormat24bppBGR,
+                CLSID_WICImagingFactory, GUID_WICPixelFormat24bppBGR, IWICBitmapScaler,
+                IWICFormatConverter, IWICImagingFactory, WICBitmapDitherTypeNone,
+                WICBitmapInterpolationModeFant, WICBitmapPaletteTypeMedianCut,
+                WICDecodeMetadataCacheOnDemand, WICRect,
             },
-            System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED},
+            System::Com::{
+                CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+            },
         },
     };
 
@@ -179,7 +184,8 @@ fn convert_heic_to_jpeg(heic_path: &str, jpeg_path: &str) -> Result<(), String> 
         // reduces memory and encode time for high-resolution sensor images.
         let mut orig_w = 0u32;
         let mut orig_h = 0u32;
-        frame.GetSize(&mut orig_w, &mut orig_h)
+        frame
+            .GetSize(&mut orig_w, &mut orig_h)
             .map_err(|e| format!("GetSize failed: {e}"))?;
 
         let scale = (HEIC_MAX_DIM as f64 / orig_w.max(orig_h) as f64).min(1.0);
@@ -232,6 +238,11 @@ fn convert_heic_to_jpeg(heic_path: &str, jpeg_path: &str) -> Result<(), String> 
 
         Ok(())
     }
+}
+
+#[cfg(not(windows))]
+fn convert_heic_to_jpeg(_heic_path: &str, _jpeg_path: &str) -> Result<(), String> {
+    Err("HEIC and HEIF images are currently supported only on Windows.".into())
 }
 
 #[tauri::command]
@@ -326,8 +337,8 @@ fn scan_images(directory_path: String) -> Result<Vec<String>, String> {
     dirs.push_back(directory);
 
     while let Some(dir) = dirs.pop_front() {
-        let entries = fs::read_dir(&dir)
-            .map_err(|error| format!("Failed to read directory: {error}"))?;
+        let entries =
+            fs::read_dir(&dir).map_err(|error| format!("Failed to read directory: {error}"))?;
 
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
@@ -353,13 +364,24 @@ struct ImageExif {
 fn format_exif_date(exif: &exif::Exif) -> Option<String> {
     let field = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)?;
     let dt = if let exif::Value::Ascii(ref vec) = field.value {
-        vec.first().and_then(|b| exif::DateTime::from_ascii(b).ok())?
+        vec.first()
+            .and_then(|b| exif::DateTime::from_ascii(b).ok())?
     } else {
         return None;
     };
     let months = [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     let month = months.get(dt.month as usize - 1)?;
     Some(format!("{month} {}, {}", dt.day, dt.year))
@@ -369,7 +391,9 @@ fn read_exif_description(exif: &exif::Exif) -> Option<String> {
     let field = exif.get_field(exif::Tag::ImageDescription, exif::In::PRIMARY)?;
     if let exif::Value::Ascii(ref vec) = field.value {
         let desc = String::from_utf8_lossy(vec.first()?).trim().to_string();
-        if !desc.is_empty() { return Some(desc); }
+        if !desc.is_empty() {
+            return Some(desc);
+        }
     }
     None
 }
@@ -383,7 +407,11 @@ fn read_gif_comment(path: &Path) -> Option<String> {
         return None;
     }
     let packed = data[10];
-    let gct_size = if packed & 0x80 != 0 { 3 * (1usize << ((packed & 0x07) as usize + 1)) } else { 0 };
+    let gct_size = if packed & 0x80 != 0 {
+        3 * (1usize << ((packed & 0x07) as usize + 1))
+    } else {
+        0
+    };
     let mut pos = 13 + gct_size;
 
     while pos + 1 < data.len() {
@@ -398,14 +426,22 @@ fn read_gif_comment(path: &Path) -> Option<String> {
                 while pos < data.len() {
                     let block_len = data[pos] as usize;
                     pos += 1;
-                    if block_len == 0 { break; }
-                    if pos + block_len > data.len() { break; }
-                    if is_comment { block_data.extend_from_slice(&data[pos..pos + block_len]); }
+                    if block_len == 0 {
+                        break;
+                    }
+                    if pos + block_len > data.len() {
+                        break;
+                    }
+                    if is_comment {
+                        block_data.extend_from_slice(&data[pos..pos + block_len]);
+                    }
                     pos += block_len;
                 }
                 if is_comment {
                     let s = String::from_utf8_lossy(&block_data).trim().to_string();
-                    if !s.is_empty() { return Some(s); }
+                    if !s.is_empty() {
+                        return Some(s);
+                    }
                 }
             }
             _ => break,
@@ -416,7 +452,10 @@ fn read_gif_comment(path: &Path) -> Option<String> {
 
 #[tauri::command]
 fn get_image_exif(image_path: String) -> ImageExif {
-    let mut result = ImageExif { date: None, description: None };
+    let mut result = ImageExif {
+        date: None,
+        description: None,
+    };
 
     let path = PathBuf::from(image_path.trim());
     let ext = match path.extension() {
@@ -475,6 +514,56 @@ fn load_image_data_url(image_path: String) -> Result<String, String> {
     };
 
     Ok(format!("data:{mime_type};base64,{encoded}"))
+}
+
+#[tauri::command]
+fn copy_image_to_path(image_path: String, destination_path: String) -> Result<(), String> {
+    let source = PathBuf::from(image_path.trim());
+    let destination = PathBuf::from(destination_path.trim());
+
+    if !source.is_file() || !is_supported_image(&source) {
+        return Err("The requested image is not available for download.".into());
+    }
+
+    if destination.as_os_str().is_empty() {
+        return Err("Choose a destination for the image.".into());
+    }
+
+    fs::copy(&source, &destination)
+        .map_err(|error| format!("Failed to save image to {}: {error}", destination.display()))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn copy_image_to_clipboard(image_path: String) -> Result<(), String> {
+    let source = PathBuf::from(image_path.trim());
+
+    if !source.is_file() || !is_supported_image(&source) {
+        return Err("The requested image is not available for copying.".into());
+    }
+
+    let read_path = if is_heic_ext(&source) {
+        ensure_heic_cached(&source)?
+    } else {
+        source
+    };
+    let image = image::ImageReader::open(&read_path)
+        .map_err(|error| format!("Failed to open image {}: {error}", read_path.display()))?
+        .decode()
+        .map_err(|error| format!("Failed to decode image {}: {error}", read_path.display()))?
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    let mut clipboard = arboard::Clipboard::new()
+        .map_err(|error| format!("Failed to access the clipboard: {error}"))?;
+
+    clipboard
+        .set_image(arboard::ImageData {
+            width: width as usize,
+            height: height as usize,
+            bytes: Cow::Owned(image.into_raw()),
+        })
+        .map_err(|error| format!("Failed to copy image to the clipboard: {error}"))
 }
 
 fn validate_settings(settings: &AppSettings) -> Result<(), String> {
@@ -573,14 +662,15 @@ fn restore_window_state(window: &Window) -> Result<(), String> {
     // Reject the position if no monitor contains the window's top-left corner,
     // which catches stale off-screen state (e.g. a disconnected monitor) without
     // incorrectly rejecting legitimate negative X positions on left-side monitors.
-    let monitors = window.available_monitors()
-        .unwrap_or_default();
+    let monitors = window.available_monitors().unwrap_or_default();
     let on_screen = monitors.iter().any(|m| {
         let sf = m.scale_factor();
         let pos = m.position().to_logical::<f64>(sf);
         let size = m.size().to_logical::<f64>(sf);
-        state.x >= pos.x && state.x < pos.x + size.width
-            && state.y >= pos.y && state.y < pos.y + size.height
+        state.x >= pos.x
+            && state.x < pos.x + size.width
+            && state.y >= pos.y
+            && state.y < pos.y + size.height
     });
     if !on_screen {
         return Ok(());
@@ -694,6 +784,8 @@ pub fn run() {
             scan_images,
             get_image_exif,
             load_image_data_url,
+            copy_image_to_path,
+            copy_image_to_clipboard,
             prefetch_images
         ])
         .run(tauri::generate_context!())
