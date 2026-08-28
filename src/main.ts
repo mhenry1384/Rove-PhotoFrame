@@ -6,7 +6,6 @@ type AppSettings = {
   directoryPath: string;
   intervalSeconds: number;
   foregroundNudgeEnabled: boolean;
-  foregroundNudgeIntervalMinutes: number;
   imageMaximized: boolean;
   showPathOnPhoto: boolean;
   showDateOnPhoto: boolean;
@@ -34,7 +33,6 @@ const state: AppState = {
     directoryPath: "",
     intervalSeconds: 60,
     foregroundNudgeEnabled: true,
-    foregroundNudgeIntervalMinutes: 1,
     imageMaximized: false,
     showPathOnPhoto: true,
     showDateOnPhoto: true,
@@ -58,8 +56,8 @@ const elements = {
   overlayPath: document.querySelector<HTMLElement>("#overlay-path"),
   showPathOnPhotoInput: document.querySelector<HTMLInputElement>("#show-path-on-photo"),
   showDateOnPhotoInput: document.querySelector<HTMLInputElement>("#show-date-on-photo"),
-  foregroundNudgeIntervalInput: document.querySelector<HTMLInputElement>(
-    "#foreground-nudge-interval-minutes",
+  foregroundNudgeEnabledInput: document.querySelector<HTMLInputElement>(
+    "#foreground-nudge-enabled",
   ),
   nextOverlayButton: document.querySelector<HTMLButtonElement>("#next-image-overlay"),
   pauseResumeButton: document.querySelector<HTMLButtonElement>("#pause-resume-overlay"),
@@ -97,9 +95,9 @@ const overlayDate = requireElement(elements.overlayDate, "#overlay-date");
 const overlayPath = requireElement(elements.overlayPath, "#overlay-path");
 const showPathOnPhotoInput = requireElement(elements.showPathOnPhotoInput, "#show-path-on-photo");
 const showDateOnPhotoInput = requireElement(elements.showDateOnPhotoInput, "#show-date-on-photo");
-const foregroundNudgeIntervalInput = requireElement(
-  elements.foregroundNudgeIntervalInput,
-  "#foreground-nudge-interval-minutes",
+const foregroundNudgeEnabledInput = requireElement(
+  elements.foregroundNudgeEnabledInput,
+  "#foreground-nudge-enabled",
 );
 const nextOverlayButton = requireElement(elements.nextOverlayButton, "#next-image-overlay");
 const pauseResumeButton = requireElement(elements.pauseResumeButton, "#pause-resume-overlay");
@@ -115,106 +113,31 @@ const settingsStatus = requireElement(elements.settingsStatus, "#settings-status
 const directoryInput = requireElement(elements.directoryInput, "#directory-path");
 const viewerStatus = requireElement(elements.viewerStatus, "#viewer-status");
 
-let foregroundNudgeTimerId: number | null = null;
+let isWindowCovered = false;
 let nativeCoverageListenerReady = false;
 
 type WindowCoverageEvent = {
   covered: boolean;
 };
 
-function logForegroundNudgeTimer(action: "started" | "stopped" | "reset", detail?: string) {
-  const suffix = detail ? ` (${detail})` : "";
+function setWindowCovered(covered: boolean, reason: string) {
+  isWindowCovered = covered;
   void invoke("debug_log", {
-    message: `[foreground-nudge-timer] ${action}${suffix}`,
+    message: `[foreground-nudge] window ${covered ? "covered" : "uncovered"} (${reason})`,
   });
 }
 
-function createForegroundNudgeInterval(reason?: string, action: "started" | "reset" = "started") {
-  const intervalMs = state.settings.foregroundNudgeIntervalMinutes * 60 * 1000;
-  foregroundNudgeTimerId = window.setInterval(() => {
-    logForegroundNudgeTimer("reset", "interval elapsed");
-    void invoke("raise_window_without_focus").catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      setViewerStatus(message, true);
-      stopForegroundNudgeTimer("raise window failed");
-    });
-  }, intervalMs);
-
-  logForegroundNudgeTimer(
-    action,
-    `${state.settings.foregroundNudgeIntervalMinutes} minute(s)${reason ? `, ${reason}` : ""}`,
-  );
-}
-
-function stopForegroundNudgeTimer(reason?: string) {
-  if (foregroundNudgeTimerId !== null) {
-    window.clearInterval(foregroundNudgeTimerId);
-    foregroundNudgeTimerId = null;
-    logForegroundNudgeTimer("stopped", reason);
-  }
-}
-
-function startForegroundNudgeTimer(reason?: string) {
-  if (!state.settings.foregroundNudgeEnabled) {
+// Brings the window forward only when the image actually changes, not on a separate
+// clock, so it never nudges more often than the slideshow itself advances.
+function nudgeForegroundIfNeeded() {
+  if (!state.settings.foregroundNudgeEnabled || !isWindowCovered) {
     return;
   }
 
-  if (document.hasFocus()) {
-    return;
-  }
-
-  if (foregroundNudgeTimerId !== null) {
-    return;
-  }
-
-  createForegroundNudgeInterval(reason, "started");
-}
-
-function startForegroundNudgeTimerOnFocusLoss(reason?: string) {
-  if (!state.settings.foregroundNudgeEnabled) {
-    return;
-  }
-
-  if (foregroundNudgeTimerId !== null) {
-    resetForegroundNudgeTimer(reason);
-    return;
-  }
-
-  createForegroundNudgeInterval(reason, "started");
-}
-
-function resetForegroundNudgeTimer(reason?: string) {
-  if (foregroundNudgeTimerId === null) {
-    return;
-  }
-
-  if (!state.settings.foregroundNudgeEnabled || document.hasFocus()) {
-    return;
-  }
-
-  window.clearInterval(foregroundNudgeTimerId);
-  foregroundNudgeTimerId = null;
-
-  createForegroundNudgeInterval(reason, "reset");
-}
-
-function restartForegroundNudgeTimer() {
-  if (!state.settings.foregroundNudgeEnabled) {
-    stopForegroundNudgeTimer("feature disabled");
-    return;
-  }
-
-  if (document.hasFocus()) {
-    stopForegroundNudgeTimer("window focused");
-    return;
-  }
-
-  if (foregroundNudgeTimerId !== null) {
-    resetForegroundNudgeTimer("restart requested");
-    return;
-  }
-
-  startForegroundNudgeTimer("restart requested");
+  void invoke("raise_window_without_focus").catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    setViewerStatus(message, true);
+  });
 }
 
 function setViewerMessage(message: string) {
@@ -351,6 +274,7 @@ async function renderCurrentImage(index: number) {
   clearViewerMessage();
   updateImageCounter();
   setViewerStatus(`Showing ${fileName}`);
+  nudgeForegroundIfNeeded();
 }
 
 async function showRandomImage() {
@@ -418,10 +342,8 @@ function togglePause() {
 
   if (state.isPaused) {
     resetTimer();
-    stopForegroundNudgeTimer("slideshow paused");
   } else {
     restartSlideshow();
-    restartForegroundNudgeTimer();
   }
 }
 
@@ -463,7 +385,6 @@ async function refreshImages() {
 }
 
 const INTERVAL_MINUTES = [1, 5, 15, 30, 60] as const;
-const NUDGE_MINUTES = [0, 1, 5, 15, 60] as const;
 
 function intervalSliderPosition(): number {
   const minutes = Math.round(state.settings.intervalSeconds / 60);
@@ -471,17 +392,11 @@ function intervalSliderPosition(): number {
   return idx >= 0 ? idx : 2;
 }
 
-function nudgeSliderPosition(): number {
-  if (!state.settings.foregroundNudgeEnabled) return 0;
-  const idx = NUDGE_MINUTES.indexOf(state.settings.foregroundNudgeIntervalMinutes as typeof NUDGE_MINUTES[number]);
-  return idx > 0 ? idx : 1;
-}
-
 function getFormSnapshot(): string {
   return JSON.stringify({
     dir: directoryInput.value.trim(),
     interval: intervalInput.value,
-    nudge: foregroundNudgeIntervalInput.value,
+    nudge: foregroundNudgeEnabledInput.checked,
     pathOnPhoto: showPathOnPhotoInput.checked,
     dateOnPhoto: showDateOnPhotoInput.checked,
   });
@@ -492,7 +407,7 @@ let settingsOpenSnapshot = "";
 function syncFormFromState() {
   directoryInput.value = state.settings.directoryPath;
   intervalInput.value = String(intervalSliderPosition());
-  foregroundNudgeIntervalInput.value = String(nudgeSliderPosition());
+  foregroundNudgeEnabledInput.checked = state.settings.foregroundNudgeEnabled;
   showPathOnPhotoInput.checked = state.settings.showPathOnPhoto;
   showDateOnPhotoInput.checked = state.settings.showDateOnPhoto;
 }
@@ -503,7 +418,6 @@ async function initializeApp() {
     setImageMaximized(state.settings.imageMaximized);
     syncFormFromState();
     await refreshImages();
-    restartForegroundNudgeTimer();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setViewerMessage("The application settings could not be loaded.");
@@ -514,11 +428,11 @@ async function initializeApp() {
 
 function setupDomCoverageFallbackListeners() {
   window.addEventListener("blur", () => {
-    startForegroundNudgeTimerOnFocusLoss("DOM blur fallback");
+    setWindowCovered(true, "DOM blur fallback");
   });
 
   window.addEventListener("focus", () => {
-    stopForegroundNudgeTimer("DOM focus fallback");
+    setWindowCovered(false, "DOM focus fallback");
   });
 
 }
@@ -526,13 +440,7 @@ function setupDomCoverageFallbackListeners() {
 async function initializeNativeCoverageListener() {
   try {
     await listen<WindowCoverageEvent>("photoframe://window-coverage", (event) => {
-      if (event.payload.covered) {
-        // Native focus loss signal: start or reset countdown.
-        startForegroundNudgeTimerOnFocusLoss("native focus lost");
-        return;
-      }
-
-      stopForegroundNudgeTimer("native focus gained");
+      setWindowCovered(event.payload.covered, "native focus event");
     });
 
     nativeCoverageListenerReady = true;
@@ -607,16 +515,11 @@ settingsForm.addEventListener("submit", async (event) => {
 
   const intervalPosition = Number.parseInt(intervalInput.value, 10);
   const intervalSeconds = (INTERVAL_MINUTES[intervalPosition] ?? 1) * 60;
-  const nudgePosition = Number.parseInt(foregroundNudgeIntervalInput.value, 10);
-  const nudgeMinutes = NUDGE_MINUTES[nudgePosition] ?? 0;
 
   try {
     state.settings.directoryPath = directoryInput.value.trim();
     state.settings.intervalSeconds = intervalSeconds;
-    state.settings.foregroundNudgeEnabled = nudgeMinutes > 0;
-    if (nudgeMinutes > 0) {
-      state.settings.foregroundNudgeIntervalMinutes = nudgeMinutes;
-    }
+    state.settings.foregroundNudgeEnabled = foregroundNudgeEnabledInput.checked;
     state.settings.showPathOnPhoto = showPathOnPhotoInput.checked;
     state.settings.showDateOnPhoto = showDateOnPhotoInput.checked;
     await persistSettings();
@@ -624,7 +527,6 @@ settingsForm.addEventListener("submit", async (event) => {
     syncFormFromState();
     settingsOpenSnapshot = getFormSnapshot();
     saveButton.disabled = true;
-    restartForegroundNudgeTimer();
     await refreshImages();
     settingsDialog.close();
   } catch (error) {

@@ -27,11 +27,6 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 const WINDOW_STATE_FILE_NAME: &str = "window-state.json";
 const WINDOW_COVERAGE_EVENT_NAME: &str = "photoframe://window-coverage";
 const DEFAULT_INTERVAL_SECONDS: u32 = 60;
-const DEFAULT_FOREGROUND_NUDGE_INTERVAL_MINUTES: u32 = 1;
-
-fn default_foreground_nudge_interval_minutes() -> u32 {
-    DEFAULT_FOREGROUND_NUDGE_INTERVAL_MINUTES
-}
 
 fn default_foreground_nudge_enabled() -> bool {
     true
@@ -48,8 +43,6 @@ struct AppSettings {
     interval_seconds: u32,
     #[serde(default = "default_foreground_nudge_enabled")]
     foreground_nudge_enabled: bool,
-    #[serde(default = "default_foreground_nudge_interval_minutes")]
-    foreground_nudge_interval_minutes: u32,
     #[serde(default)]
     image_maximized: bool,
     #[serde(default = "default_true")]
@@ -79,7 +72,6 @@ impl Default for AppSettings {
             directory_path: String::new(),
             interval_seconds: DEFAULT_INTERVAL_SECONDS,
             foreground_nudge_enabled: true,
-            foreground_nudge_interval_minutes: DEFAULT_FOREGROUND_NUDGE_INTERVAL_MINUTES,
             image_maximized: false,
             show_path_on_photo: true,
             show_date_on_photo: true,
@@ -488,10 +480,6 @@ fn load_image_data_url(image_path: String) -> Result<String, String> {
 fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     if settings.interval_seconds == 0 {
         return Err("Interval must be at least 1 second.".into());
-    }
-
-    if settings.foreground_nudge_enabled && settings.foreground_nudge_interval_minutes == 0 {
-        return Err("Foreground nudge interval must be at least 1 minute.".into());
     }
 
     let directory_path = settings.directory_path.trim();
