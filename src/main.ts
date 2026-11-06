@@ -314,6 +314,36 @@ function prefetchUpcomingImages() {
   }
 }
 
+// Leaves a snapshot of the currently displayed image (and its blurred backdrop) behind the
+// live elements, fading out, while the live elements fade in with the new image.
+function beginCrossfade() {
+  photoStage.querySelectorAll(".crossfade-out").forEach((el) => el.remove());
+
+  if (photo.hidden || !photo.getAttribute("src")) {
+    return;
+  }
+
+  const outgoingBg = photoBg.cloneNode(false) as HTMLElement;
+  const outgoingPhoto = photo.cloneNode(false) as HTMLImageElement;
+  for (const el of [outgoingBg, outgoingPhoto]) {
+    el.removeAttribute("id");
+    el.classList.remove("crossfade-in");
+    el.classList.add("crossfade-out");
+    el.setAttribute("aria-hidden", "true");
+    el.addEventListener("animationend", () => el.remove(), { once: true });
+  }
+
+  // Outgoing bg goes just above the live bg; outgoing photo just below the live photo.
+  photoBg.after(outgoingBg);
+  photo.before(outgoingPhoto);
+
+  // The backdrop fills the stage, so fading the outgoing copy out over it is enough. The
+  // photo is letterboxed and its footprint can change, so it fades in as well.
+  photo.classList.remove("crossfade-in");
+  void photo.offsetWidth; // restart the animation
+  photo.classList.add("crossfade-in");
+}
+
 async function renderCurrentImage(index: number) {
   const imagePath = state.imagePaths[index];
   const fileName = imagePath.split(/[/\\]/).pop() ?? imagePath;
@@ -330,6 +360,15 @@ async function renderCurrentImage(index: number) {
     return;
   }
 
+  // Decode before swapping so the fade starts from a fully rendered image, not a blank frame.
+  const preload = new Image();
+  preload.src = imageSource;
+  await preload.decode().catch(() => {});
+  if (requestToken !== state.imageRequestToken) {
+    return;
+  }
+
+  beginCrossfade();
   state.currentImageIndex = index;
   photo.src = imageSource;
   photoBg.style.backgroundImage = `url(${imageSource})`;
