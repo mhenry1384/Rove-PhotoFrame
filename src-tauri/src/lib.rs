@@ -317,7 +317,7 @@ fn raise_window_without_focus(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn debug_log(message: String) {
-    println!("[PhotoFrame] {message}");
+    println!("[Rove PhotoFrame] {message}");
 }
 
 #[tauri::command]

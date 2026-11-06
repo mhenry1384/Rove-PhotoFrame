@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "photoframe",
-  "version": "0.1.8",
+  "productName": "Rove PhotoFrame",
+  "version": "0.1.9",
   "identifier": "com.matthewhenry.photoframe",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "PhotoFrame",
+        "title": "Rove PhotoFrame",
         "visible": false,
         "width": 1200,
         "height": 800,

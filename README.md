@@ -1,8 +1,8 @@
-# PhotoFrame
+# Rove PhotoFrame
 
 A desktop slideshow app built with [Tauri](https://tauri.app) and TypeScript. Point it at a folder of photos and it cycles through them automatically, staying visible on your desktop while you work.
 
-![PhotoFrame screenshot](screenshot.png)
+![Rove PhotoFrame screenshot](screenshot.png)
 
 ## Features
 
