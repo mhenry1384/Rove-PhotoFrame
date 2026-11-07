@@ -112,6 +112,10 @@ const settingsForm = requireElement(elements.settingsForm, "#settings-form");
 const settingsStatus = requireElement(elements.settingsStatus, "#settings-status");
 const directoryInput = requireElement(elements.directoryInput, "#directory-path");
 const viewerStatus = requireElement(elements.viewerStatus, "#viewer-status");
+const scanSpinner = requireElement(
+  document.querySelector<HTMLElement>("#scan-spinner"),
+  "#scan-spinner",
+);
 
 let isWindowCovered = false;
 let nativeCoverageListenerReady = false;
@@ -203,6 +207,17 @@ async function downloadCurrentImage() {
   setViewerStatus(`Saved ${fileName}.`);
 }
 
+async function copyCurrentFileName() {
+  const imagePath = currentImagePath();
+  if (!imagePath) {
+    return;
+  }
+
+  const fileName = imagePath.split(/[/\\]/).pop() ?? imagePath;
+  await invoke("copy_text_to_clipboard", { text: fileName });
+  setViewerStatus(`Copied "${fileName}" to the clipboard.`);
+}
+
 function addImageContextMenuAction(menu: HTMLElement, label: string, action: () => Promise<void>) {
   const button = document.createElement("button");
   button.type = "button";
@@ -226,6 +241,7 @@ function showImageContextMenu(event: MouseEvent) {
   menu.className = "image-context-menu";
   menu.setAttribute("role", "menu");
   addImageContextMenuAction(menu, "Copy Image", copyCurrentImage);
+  addImageContextMenuAction(menu, "Copy File Name", copyCurrentFileName);
   addImageContextMenuAction(menu, "Download Image", downloadCurrentImage);
   document.body.append(menu);
 
@@ -464,6 +480,24 @@ async function advanceToNextImage() {
   restartSlideshow();
 }
 
+const SPINNER_DELAY_MS = 2000;
+
+// Shows the scanning spinner only if the work is still running after SPINNER_DELAY_MS,
+// so quick scans don't flash it. It's a popover so it sits in the top layer, above the
+// settings dialog when a folder change triggers the scan.
+async function withDelayedSpinner<T>(work: Promise<T>): Promise<T> {
+  const showTimer = window.setTimeout(() => scanSpinner.showPopover(), SPINNER_DELAY_MS);
+
+  try {
+    return await work;
+  } finally {
+    window.clearTimeout(showTimer);
+    if (scanSpinner.matches(":popover-open")) {
+      scanSpinner.hidePopover();
+    }
+  }
+}
+
 async function refreshImages() {
   const directoryPath = state.settings.directoryPath.trim();
 
@@ -478,7 +512,10 @@ async function refreshImages() {
     return;
   }
 
-  const imagePaths = await invoke<string[]>("scan_images", { directoryPath });
+  setViewerStatus("Scanning for images...");
+  const imagePaths = await withDelayedSpinner(
+    invoke<string[]>("scan_images", { directoryPath }),
+  );
   state.imagePaths = imagePaths;
   state.currentImageIndex = null;
   state.shuffledOrder = buildShuffledOrder(imagePaths.length);

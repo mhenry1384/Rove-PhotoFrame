@@ -565,3 +565,47 @@ dialog::backdrop {
     padding: 1rem;
   }
 }
+
+.scan-spinner {
+  inset: 0;
+  margin: auto;
+  width: max-content;
+  height: max-content;
+  padding: 1.5rem 2rem;
+  border: 1px solid rgba(255, 236, 212, 0.22);
+  border-radius: 12px;
+  background: rgba(37, 24, 25, 0.96);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.36);
+  color: #fff1dd;
+  text-align: center;
+}
+
+.scan-spinner:popover-open {
+  display: grid;
+  justify-items: center;
+  gap: 0.9rem;
+}
+
+.scan-spinner::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.scan-spinner p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.scan-spinner-wheel {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 3px solid rgba(255, 236, 212, 0.2);
+  border-top-color: #f1aa68;
+  border-radius: 50%;
+  animation: scan-spin 0.9s linear infinite;
+}
+
+@keyframes scan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

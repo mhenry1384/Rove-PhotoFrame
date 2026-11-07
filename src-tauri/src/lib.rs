@@ -320,8 +320,16 @@ fn debug_log(message: String) {
     println!("[Rove PhotoFrame] {message}");
 }
 
+// Async + spawn_blocking so a long scan of a large tree runs off the main thread and
+// doesn't freeze the webview (sync commands run on the main thread).
 #[tauri::command]
-fn scan_images(directory_path: String) -> Result<Vec<String>, String> {
+async fn scan_images(directory_path: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_images_blocking(&directory_path))
+        .await
+        .map_err(|error| format!("Directory scan failed: {error}"))?
+}
+
+fn scan_images_blocking(directory_path: &str) -> Result<Vec<String>, String> {
     let directory = PathBuf::from(directory_path.trim());
 
     if !directory.exists() {
@@ -533,6 +541,13 @@ fn copy_image_to_path(image_path: String, destination_path: String) -> Result<()
         .map_err(|error| format!("Failed to save image to {}: {error}", destination.display()))?;
 
     Ok(())
+}
+
+#[tauri::command]
+fn copy_text_to_clipboard(text: String) -> Result<(), String> {
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_text(text))
+        .map_err(|error| format!("Failed to copy text to the clipboard: {error}"))
 }
 
 #[tauri::command]
@@ -786,6 +801,7 @@ pub fn run() {
             load_image_data_url,
             copy_image_to_path,
             copy_image_to_clipboard,
+            copy_text_to_clipboard,
             prefetch_images
         ])
         .run(tauri::generate_context!())
