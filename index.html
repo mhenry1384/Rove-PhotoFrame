@@ -11,12 +11,12 @@
     <main class="app-shell" data-image-maximized="false">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Desktop Slideshow</p>
-          <h1>Rove PhotoFrame <span class="version-label">v0.1.12</span></h1>
-          <p class="owner-label">Matthew Henry</p>
+          <h1>Rove PhotoFrame <span class="version-label">v1.0.0</span></h1>
         </div>
         <div class="topbar-actions">
+          <button id="open-favorites" type="button" class="secondary-button">Favorites</button>
           <button id="open-settings" type="button">Settings</button>
+          <button id="open-about" type="button" class="secondary-button">About</button>
         </div>
       </header>
 
@@ -46,6 +46,24 @@
       <section class="photo-stage" id="photo-stage" data-empty="true">
         <div class="photo-bg" id="photo-bg"></div>
         <div class="photo-controls">
+          <button
+            id="favorite-overlay"
+            type="button"
+            class="icon-button"
+            aria-label="Add to favorites"
+            aria-pressed="false"
+            title="Add to favorites"
+            data-favorite="false"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.8L12 16.85 6.75 19.6l1-5.8L3.5 9.7l5.9-.9z"
+                stroke="currentColor"
+                stroke-linejoin="round"
+                stroke-width="1.8"
+              />
+            </svg>
+          </button>
           <button
             id="prev-image-overlay"
             type="button"
@@ -243,6 +261,76 @@
             Cancel
           </button>
           <button type="submit" id="settings-save" disabled>Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="favorites-dialog">
+      <form id="favorites-form" method="dialog" class="settings-form">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Favorites</p>
+            <h2>Copy Favorites</h2>
+          </div>
+        </div>
+
+        <p id="favorites-summary" class="dialog-text"></p>
+
+        <div class="field">
+          <span>Destination folder</span>
+          <div class="input-with-button">
+            <input
+              id="favorites-destination"
+              name="favoritesDestination"
+              type="text"
+              placeholder="C:\Users\you\Pictures\Favorites"
+              autocomplete="off"
+            />
+            <button type="button" id="browse-favorites-destination" class="secondary-button browse-button" title="Browse for folder">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="16" height="16">
+                <path d="M3 7h6l2 2h10v11H3V7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <p class="dialog-hint">Every favorite is copied to this folder, then removed from your favorites.</p>
+
+        <p id="favorites-status" class="settings-status"></p>
+
+        <menu class="dialog-actions">
+          <button
+            type="button"
+            class="secondary-button"
+            onclick="document.getElementById('favorites-dialog').close()"
+          >
+            Close
+          </button>
+          <button type="submit" id="favorites-copy" disabled>Copy &amp; Clear</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="about-dialog">
+      <form method="dialog" class="settings-form">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">About</p>
+            <h2>Rove PhotoFrame <span id="about-version" class="version-label">v1.0.0</span></h2>
+          </div>
+        </div>
+
+        <p class="dialog-text">
+          A desktop photo frame that shows a shuffled slideshow of the pictures in a folder,
+          with crossfades, a maximized frame mode, and favorites you can collect and copy out.
+        </p>
+        <p class="dialog-text">
+          <a href="https://github.com/mhenry1384" data-external-link="https://github.com/mhenry1384">https://github.com/mhenry1384</a>
+        </p>
+        <p class="dialog-text">Licensed under the GNU General Public License v3 (GPLv3).</p>
+
+        <menu class="dialog-actions">
+          <button type="submit">Close</button>
         </menu>
       </form>
     </dialog>

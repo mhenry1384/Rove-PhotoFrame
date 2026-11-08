@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 type AppSettings = {
   directoryPath: string;
@@ -13,6 +15,7 @@ type AppSettings = {
 
 type AppState = {
   currentImageIndex: number | null;
+  favorites: Set<string>;
   imagePaths: string[];
   imageRequestToken: number;
   isImageMaximized: boolean;
@@ -25,6 +28,7 @@ type AppState = {
 
 const state: AppState = {
   currentImageIndex: null,
+  favorites: new Set(),
   imagePaths: [],
   imageRequestToken: 0,
   isImageMaximized: false,
@@ -116,6 +120,23 @@ const scanSpinner = requireElement(
   document.querySelector<HTMLElement>("#scan-spinner"),
   "#scan-spinner",
 );
+
+function byId<T extends HTMLElement>(id: string): T {
+  return requireElement(document.getElementById(id) as T | null, `#${id}`);
+}
+
+const favoriteButton = byId<HTMLButtonElement>("favorite-overlay");
+const favoritesButton = byId<HTMLButtonElement>("open-favorites");
+const favoritesDialog = byId<HTMLDialogElement>("favorites-dialog");
+const favoritesForm = byId<HTMLFormElement>("favorites-form");
+const favoritesSummary = byId<HTMLElement>("favorites-summary");
+const favoritesDestinationInput = byId<HTMLInputElement>("favorites-destination");
+const favoritesBrowseButton = byId<HTMLButtonElement>("browse-favorites-destination");
+const favoritesCopyButton = byId<HTMLButtonElement>("favorites-copy");
+const favoritesStatus = byId<HTMLElement>("favorites-status");
+const aboutButton = byId<HTMLButtonElement>("open-about");
+const aboutDialog = byId<HTMLDialogElement>("about-dialog");
+const aboutVersion = byId<HTMLElement>("about-version");
 
 let isWindowCovered = false;
 let nativeCoverageListenerReady = false;
@@ -249,6 +270,84 @@ function showImageContextMenu(event: MouseEvent) {
   menu.style.left = `${Math.min(event.clientX, window.innerWidth - width - 8)}px`;
   menu.style.top = `${Math.min(event.clientY, window.innerHeight - height - 8)}px`;
   imageContextMenu = menu;
+}
+
+function syncFavoriteButton() {
+  const imagePath = currentImagePath();
+  const isFavorite = imagePath !== null && state.favorites.has(imagePath);
+  const label = isFavorite ? "Remove from favorites" : "Add to favorites";
+
+  favoriteButton.dataset.favorite = isFavorite ? "true" : "false";
+  favoriteButton.setAttribute("aria-pressed", isFavorite ? "true" : "false");
+  favoriteButton.setAttribute("aria-label", label);
+  favoriteButton.title = label;
+  favoriteButton.disabled = imagePath === null;
+}
+
+async function toggleCurrentFavorite() {
+  const imagePath = currentImagePath();
+  if (!imagePath) {
+    return;
+  }
+
+  const favorite = !state.favorites.has(imagePath);
+  await invoke<boolean>("set_favorite", { imagePath, favorite });
+  if (favorite) {
+    state.favorites.add(imagePath);
+  } else {
+    state.favorites.delete(imagePath);
+  }
+  syncFavoriteButton();
+
+  const fileName = imagePath.split(/[/\\]/).pop() ?? imagePath;
+  setViewerStatus(favorite ? `Added ${fileName} to favorites.` : `Removed ${fileName} from favorites.`);
+}
+
+function setFavoritesStatus(message: string, isError = false) {
+  favoritesStatus.textContent = message;
+  favoritesStatus.dataset.error = isError ? "true" : "false";
+}
+
+function syncFavoritesDialog() {
+  const count = state.favorites.size;
+  favoritesSummary.textContent =
+    count === 0
+      ? "You have no favorites yet. Use the star button on a photo to add one."
+      : `You have ${count} favorite ${count === 1 ? "photo" : "photos"}.`;
+  favoritesCopyButton.disabled = count === 0 || favoritesDestinationInput.value.trim() === "";
+}
+
+type ExportFavoritesResult = {
+  copied: number;
+  failed: string[];
+  remaining: string[];
+};
+
+async function exportFavorites() {
+  const destinationDir = favoritesDestinationInput.value.trim();
+  favoritesCopyButton.disabled = true;
+  setFavoritesStatus("Copying favorites...");
+
+  try {
+    const result = await invoke<ExportFavoritesResult>("export_favorites", { destinationDir });
+    state.favorites = new Set(result.remaining);
+    syncFavoriteButton();
+    syncFavoritesDialog();
+
+    const copiedText = `Copied ${result.copied} ${result.copied === 1 ? "photo" : "photos"}.`;
+    if (result.failed.length > 0) {
+      setFavoritesStatus(
+        `${copiedText} ${result.failed.length} could not be copied and are still favorited: ${result.failed.join("; ")}`,
+        true,
+      );
+    } else {
+      setFavoritesStatus(copiedText);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setFavoritesStatus(message, true);
+    syncFavoritesDialog();
+  }
 }
 
 function syncImageMaximizedState() {
@@ -386,6 +485,7 @@ async function renderCurrentImage(index: number) {
 
   beginCrossfade();
   state.currentImageIndex = index;
+  syncFavoriteButton();
   photo.src = imageSource;
   photoBg.style.backgroundImage = `url(${imageSource})`;
   photo.alt = fileName;
@@ -518,6 +618,7 @@ async function refreshImages() {
   );
   state.imagePaths = imagePaths;
   state.currentImageIndex = null;
+  syncFavoriteButton();
   state.shuffledOrder = buildShuffledOrder(imagePaths.length);
   state.shufflePosition = -1;
 
@@ -564,6 +665,8 @@ function syncFormFromState() {
 async function initializeApp() {
   try {
     state.settings = await invoke<AppSettings>("load_settings");
+    state.favorites = new Set(await invoke<string[]>("load_favorites"));
+    syncFavoriteButton();
     setImageMaximized(state.settings.imageMaximized);
     syncFormFromState();
     await refreshImages();
@@ -629,6 +732,49 @@ settingsForm.addEventListener("input", () => {
 
 settingsDialog.addEventListener("close", () => {
   setSettingsStatus("");
+});
+
+favoriteButton.addEventListener("click", () => {
+  void toggleCurrentFavorite().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    setViewerStatus(message, true);
+  });
+});
+
+favoritesButton.addEventListener("click", () => {
+  setFavoritesStatus("");
+  syncFavoritesDialog();
+  favoritesDialog.showModal();
+});
+
+favoritesBrowseButton.addEventListener("click", () => {
+  const currentDir = favoritesDestinationInput.value.trim() || undefined;
+  void openDialog({ directory: true, multiple: false, defaultPath: currentDir }).then((selected) => {
+    if (typeof selected === "string") {
+      favoritesDestinationInput.value = selected;
+      syncFavoritesDialog();
+    }
+  });
+});
+
+favoritesDestinationInput.addEventListener("input", syncFavoritesDialog);
+
+favoritesForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void exportFavorites();
+});
+
+aboutButton.addEventListener("click", () => {
+  aboutDialog.showModal();
+});
+
+aboutDialog.querySelectorAll<HTMLAnchorElement>("[data-external-link]").forEach((link) => {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    void openUrl(link.dataset.externalLink ?? link.href).catch((error) => {
+      console.error("openUrl failed", error);
+    });
+  });
 });
 
 pauseResumeButton.addEventListener("click", () => {
@@ -701,6 +847,11 @@ settingsForm.addEventListener("submit", async (event) => {
 });
 
 window.addEventListener("DOMContentLoaded", () => {
+  void getVersion()
+    .then((version) => {
+      aboutVersion.textContent = `v${version}`;
+    })
+    .catch(() => {});
   void initializeNativeCoverageListener();
   void initializeApp();
 });

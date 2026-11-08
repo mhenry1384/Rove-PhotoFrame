@@ -164,13 +164,6 @@ h1 {
   font-size: clamp(2rem, 4vw, 3.1rem);
 }
 
-.owner-label {
-  margin: 0;
-  font-size: 0.82rem;
-  color: var(--text-dim);
-  letter-spacing: 0.04em;
-}
-
 .version-label {
   font-size: 0.4em;
   font-weight: 400;
@@ -232,7 +225,8 @@ input[type="range"] {
 }
 
 #viewer-status[data-error="true"],
-#settings-status[data-error="true"] {
+#settings-status[data-error="true"],
+#favorites-status[data-error="true"] {
   color: var(--error);
 }
 
@@ -355,6 +349,21 @@ input[type="range"] {
 .icon-button svg {
   width: 1.2rem;
   height: 1.2rem;
+}
+
+/* Favorite star: outlined when not a favorite, inverted (filled amber) when it is. */
+#favorite-overlay svg path {
+  fill: none;
+}
+
+#favorite-overlay[data-favorite="true"] {
+  background: linear-gradient(135deg, #d97d3e 0%, #f5b065 100%);
+  color: #251515;
+  border-color: transparent;
+}
+
+#favorite-overlay[data-favorite="true"] svg path {
+  fill: currentColor;
 }
 
 .icon-collapse {
@@ -520,6 +529,19 @@ dialog::backdrop {
 }
 
 .field span {
+  color: var(--text-dim);
+}
+
+.dialog-text {
+  color: #f6eada;
+}
+
+.dialog-text a {
+  color: var(--accent-strong);
+}
+
+.dialog-hint {
+  font-size: 0.88rem;
   color: var(--text-dim);
 }
 

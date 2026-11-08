@@ -27,6 +27,7 @@ const HEIC_MAX_DIM: u32 = 2048;
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const WINDOW_STATE_FILE_NAME: &str = "window-state.json";
+const FAVORITES_FILE_NAME: &str = "favorites.json";
 const WINDOW_COVERAGE_EVENT_NAME: &str = "photoframe://window-coverage";
 const DEFAULT_INTERVAL_SECONDS: u32 = 60;
 
@@ -581,6 +582,122 @@ fn copy_image_to_clipboard(image_path: String) -> Result<(), String> {
         .map_err(|error| format!("Failed to copy image to the clipboard: {error}"))
 }
 
+// Favorites live in favorites.json in the per-user config dir. Every change is written
+// to disk immediately, so nothing is lost when the app closes.
+fn read_favorites(app: &AppHandle) -> Result<Vec<String>, String> {
+    let path = app_file_path(app, FAVORITES_FILE_NAME)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    read_json_file(&path)
+}
+
+fn write_favorites(app: &AppHandle, favorites: &[String]) -> Result<(), String> {
+    let path = app_file_path(app, FAVORITES_FILE_NAME)?;
+    write_json_file(&path, &favorites)
+}
+
+#[tauri::command]
+fn load_favorites(app: AppHandle) -> Result<Vec<String>, String> {
+    read_favorites(&app)
+}
+
+// Adds or removes the image from favorites; returns whether it is now a favorite.
+#[tauri::command]
+fn set_favorite(app: AppHandle, image_path: String, favorite: bool) -> Result<bool, String> {
+    let mut favorites = read_favorites(&app)?;
+    favorites.retain(|existing| existing != &image_path);
+    if favorite {
+        favorites.push(image_path);
+    }
+    write_favorites(&app, &favorites)?;
+    Ok(favorite)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportFavoritesResult {
+    copied: usize,
+    failed: Vec<String>,
+    remaining: Vec<String>,
+}
+
+// Picks a file name in `directory` that doesn't already exist, appending " (n)" if needed.
+fn unique_destination(directory: &Path, file_name: &std::ffi::OsStr) -> PathBuf {
+    let candidate = directory.join(file_name);
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let name = Path::new(file_name);
+    let stem = name
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let extension = name
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+
+    (2..)
+        .map(|n| directory.join(format!("{stem} ({n}){extension}")))
+        .find(|path| !path.exists())
+        .expect("an unused file name always exists")
+}
+
+// Copies every favorite into the destination folder and un-favorites the ones that
+// were copied. Favorites that fail to copy stay favorited so nothing is lost.
+#[tauri::command]
+async fn export_favorites(
+    app: AppHandle,
+    destination_dir: String,
+) -> Result<ExportFavoritesResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let destination = PathBuf::from(destination_dir.trim());
+        if destination.as_os_str().is_empty() {
+            return Err("Choose a destination folder.".to_string());
+        }
+        if !destination.is_dir() {
+            return Err("The destination folder does not exist.".to_string());
+        }
+
+        let favorites = read_favorites(&app)?;
+        let mut copied = 0;
+        let mut failed = Vec::new();
+        let mut remaining = Vec::new();
+
+        for favorite in favorites {
+            let source = PathBuf::from(&favorite);
+            let result = match source.file_name() {
+                Some(file_name) if source.is_file() => {
+                    let target = unique_destination(&destination, file_name);
+                    fs::copy(&source, &target)
+                        .map(|_| ())
+                        .map_err(|error| format!("{favorite}: {error}"))
+                }
+                _ => Err(format!("{favorite}: file not found")),
+            };
+
+            match result {
+                Ok(()) => copied += 1,
+                Err(message) => {
+                    failed.push(message);
+                    remaining.push(favorite);
+                }
+            }
+        }
+
+        write_favorites(&app, &remaining)?;
+        Ok(ExportFavoritesResult {
+            copied,
+            failed,
+            remaining,
+        })
+    })
+    .await
+    .map_err(|error| format!("Copying favorites failed: {error}"))?
+}
+
 fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     if settings.interval_seconds == 0 {
         return Err("Interval must be at least 1 second.".into());
@@ -802,7 +919,10 @@ pub fn run() {
             copy_image_to_path,
             copy_image_to_clipboard,
             copy_text_to_clipboard,
-            prefetch_images
+            prefetch_images,
+            load_favorites,
+            set_favorite,
+            export_favorites
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
