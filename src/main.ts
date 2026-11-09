@@ -494,7 +494,7 @@ async function renderCurrentImage(index: number) {
   const rel = state.imagePaths[index].slice(dir.length).replace(/^[/\\]/, "");
   const rawPath = exif.description ?? rel;
   const stripLast = (p: string) => { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i > 0 ? p.slice(0, i) : ""; };
-  const overlayDisplayPath = stripLast(stripLast(rawPath));
+  const overlayDisplayPath = stripLast(rawPath);
   imagePathEl.textContent = exif.description ?? rel;
   imageDate.textContent = exif.date ?? "";
   overlayDate.textContent = exif.date ?? "";
