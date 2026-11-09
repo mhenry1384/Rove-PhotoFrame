@@ -10,7 +10,8 @@ use std::{
     sync::{mpsc, Mutex, OnceLock},
 };
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, Window, WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, Window,
+    WindowEvent,
 };
 
 static WINDOW_SAVE_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -795,7 +796,7 @@ fn restore_window_state(window: &Window) -> Result<(), String> {
     // which catches stale off-screen state (e.g. a disconnected monitor) without
     // incorrectly rejecting legitimate negative X positions on left-side monitors.
     let monitors = window.available_monitors().unwrap_or_default();
-    let on_screen = monitors.iter().any(|m| {
+    let monitor = monitors.iter().find(|m| {
         let sf = m.scale_factor();
         let pos = m.position().to_logical::<f64>(sf);
         let size = m.size().to_logical::<f64>(sf);
@@ -804,16 +805,49 @@ fn restore_window_state(window: &Window) -> Result<(), String> {
             && state.y >= pos.y
             && state.y < pos.y + size.height
     });
-    if !on_screen {
+    let Some(monitor) = monitor else {
+        // A maximized window's own bounds overhang its monitor, so without an
+        // earlier normal position it can only be maximized where it opened.
+        if state.maximized {
+            window
+                .maximize()
+                .map_err(|error| format!("Failed to maximize window: {error}"))?;
+        }
         return Ok(());
-    }
+    };
+
+    // The state was saved in the target monitor's logical units, so convert with
+    // its scale factor rather than that of the monitor the window opened on.
+    let scale_factor = monitor.scale_factor();
+    let x = (state.x * scale_factor).round() as i32;
+    let y = (state.y * scale_factor).round() as i32;
+    let width = (state.width * scale_factor).round() as i32;
+    let height = (state.height * scale_factor).round() as i32;
+
+    // set_size applies to the client area, so the title bar and borders have to
+    // be included when checking that the window fits on the monitor.
+    let inner = window
+        .inner_size()
+        .map_err(|error| format!("Failed to read window size: {error}"))?;
+    let outer = window
+        .outer_size()
+        .map_err(|error| format!("Failed to read window size: {error}"))?;
+    let frame_width = outer.width as i32 - inner.width as i32;
+    let frame_height = outer.height as i32 - inner.height as i32;
+
+    let work_area = monitor.work_area();
+    let max_width = work_area.position.x + work_area.size.width as i32 - x - frame_width;
+    let max_height = work_area.position.y + work_area.size.height as i32 - y - frame_height;
 
     window
-        .set_position(Position::Logical(LogicalPosition::new(state.x, state.y)))
+        .set_position(Position::Physical(PhysicalPosition::new(x, y)))
         .map_err(|error| format!("Failed to restore window position: {error}"))?;
 
     window
-        .set_size(Size::Logical(LogicalSize::new(state.width, state.height)))
+        .set_size(Size::Physical(PhysicalSize::new(
+            width.min(max_width).max(1) as u32,
+            height.min(max_height).max(1) as u32,
+        )))
         .map_err(|error| format!("Failed to restore window size: {error}"))?;
 
     if state.maximized {
@@ -825,13 +859,36 @@ fn restore_window_state(window: &Window) -> Result<(), String> {
     Ok(())
 }
 
+fn fills_monitor(window: &Window) -> Result<bool, String> {
+    let Some(monitor) = window
+        .current_monitor()
+        .map_err(|error| format!("Failed to read current monitor: {error}"))?
+    else {
+        return Ok(false);
+    };
+
+    let position = window
+        .outer_position()
+        .map_err(|error| format!("Failed to read window position: {error}"))?;
+    let size = window
+        .outer_size()
+        .map_err(|error| format!("Failed to read window size: {error}"))?;
+    let area = monitor.work_area();
+
+    Ok(position.x <= area.position.x
+        && position.y <= area.position.y
+        && position.x + size.width as i32 >= area.position.x + area.size.width as i32
+        && position.y + size.height as i32 >= area.position.y + area.size.height as i32)
+}
+
 fn save_window_state(window: &Window) -> Result<(), String> {
     if window.is_minimized().unwrap_or(false) {
         return Ok(());
     }
 
+    // Save the client area, because that is what set_size restores.
     let physical_size = window
-        .outer_size()
+        .inner_size()
         .map_err(|error| format!("Failed to read window size: {error}"))?;
     let physical_position = window
         .outer_position()
@@ -847,15 +904,32 @@ fn save_window_state(window: &Window) -> Result<(), String> {
         return Ok(());
     }
 
-    let state = WindowState {
-        x: position.x,
-        y: position.y,
-        width: size.width,
-        height: size.height,
-        maximized: window.is_maximized().unwrap_or(false),
+    let maximized = window.is_maximized().unwrap_or(false);
+    let state_path = app_file_path(&window.app_handle(), WINDOW_STATE_FILE_NAME)?;
+
+    // While maximized, keep the last normal bounds so un-maximizing after a
+    // restart returns the window to the size it had before. The bounds are also
+    // checked because Windows reports the maximized size before is_maximized
+    // turns true, which would otherwise overwrite the normal bounds.
+    let keep_previous_bounds = maximized || fills_monitor(window)?;
+    let previous = keep_previous_bounds
+        .then(|| read_json_file::<WindowState>(&state_path).ok())
+        .flatten();
+
+    let state = match previous {
+        Some(previous) => WindowState {
+            maximized,
+            ..previous
+        },
+        None => WindowState {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+            maximized,
+        },
     };
 
-    let state_path = app_file_path(&window.app_handle(), WINDOW_STATE_FILE_NAME)?;
     write_json_file(&state_path, &state)
 }
 
