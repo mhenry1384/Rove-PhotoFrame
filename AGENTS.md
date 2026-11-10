@@ -9,6 +9,7 @@
   - `src-tauri/Cargo.toml` (`package.version`)
   - `index.html` displayed app version label
 - Apply the version bump first, then run the build.
+- When running a release build, check whether the app (`photoframe.exe`) is running. If it is, kill it before building and restart it from `src-tauri/target/release/photoframe.exe` after the build finishes, so the running app is always the latest build.
 
 ## Installers
 
