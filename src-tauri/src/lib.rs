@@ -563,7 +563,7 @@ fn copy_image_to_clipboard(image_path: String) -> Result<(), String> {
     let read_path = if is_heic_ext(&source) {
         ensure_heic_cached(&source)?
     } else {
-        source
+        source.clone()
     };
     let image = image::ImageReader::open(&read_path)
         .map_err(|error| format!("Failed to open image {}: {error}", read_path.display()))?
@@ -580,7 +580,28 @@ fn copy_image_to_clipboard(image_path: String) -> Result<(), String> {
             height: height as usize,
             bytes: Cow::Owned(image.into_raw()),
         })
-        .map_err(|error| format!("Failed to copy image to the clipboard: {error}"))
+        .map_err(|error| format!("Failed to copy image to the clipboard: {error}"))?;
+    drop(clipboard);
+
+    // Also offer the original file (CF_HDROP) alongside the bitmap, so pasting into
+    // Explorer creates a copy of the file while chat apps still get the image.
+    // Best effort: the image copy already succeeded, so a failure here is ignored.
+    #[cfg(windows)]
+    append_file_to_clipboard(&source);
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn append_file_to_clipboard(path: &Path) {
+    let Some(path) = path.to_str() else { return };
+    for _ in 0..5 {
+        if let Ok(_open) = clipboard_win::Clipboard::new() {
+            let _ = clipboard_win::raw::set_file_list_with(&[path], clipboard_win::options::NoClear);
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
 }
 
 // Favorites live in favorites.json in the per-user config dir. Every change is written

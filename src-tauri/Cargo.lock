@@ -2527,10 +2527,11 @@ dependencies = [
 
 [[package]]
 name = "photoframe"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "arboard",
  "base64 0.22.1",
+ "clipboard-win",
  "image",
  "kamadak-exif",
  "serde",
