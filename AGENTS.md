@@ -21,3 +21,7 @@
 - Don't build debug versions (`pnpm tauri dev`, `cargo build`, `cargo run`, or anything else that
   writes to `src-tauri/target/debug/`) unless the user explicitly asks for one, or you need a debug
   build to track down an issue. Use release builds otherwise.
+
+## Git Branches
+
+- Work directly on `main`. Only create a Git branch when the user explicitly asks for one.
