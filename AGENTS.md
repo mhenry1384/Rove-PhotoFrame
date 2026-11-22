@@ -15,3 +15,9 @@
 
 - Never build an installer unless the user explicitly asks for one.
 - `pnpm tauri build` creates installers by default, because bundling is turned on in `src-tauri/tauri.conf.json`. For a release build without an installer, run `pnpm tauri build --no-bundle`.
+
+## Debug Builds
+
+- Don't build debug versions (`pnpm tauri dev`, `cargo build`, `cargo run`, or anything else that
+  writes to `src-tauri/target/debug/`) unless the user explicitly asks for one, or you need a debug
+  build to track down an issue. Use release builds otherwise.
