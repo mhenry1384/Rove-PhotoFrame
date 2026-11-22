@@ -2,7 +2,7 @@
 
 ## Build Versioning Policy
 
-- Before running a release build (for example `npm run tauri build`), check `git status`. If there are uncommitted changes, increment the app version by `0.0.1`. If the working tree is clean, build without changing the version.
+- Before running a release build (for example `pnpm tauri build`), check `git status`. If there are uncommitted changes, increment the app version by `0.0.1`. If the working tree is clean, build without changing the version.
 - Keep all version references in sync:
   - `package.json` (`version`)
   - `src-tauri/tauri.conf.json` (`version`)
@@ -14,4 +14,4 @@
 ## Installers
 
 - Never build an installer unless the user explicitly asks for one.
-- `npm run tauri build` creates installers by default, because bundling is turned on in `src-tauri/tauri.conf.json`. For a release build without an installer, run `npm run tauri build -- --no-bundle`.
+- `pnpm tauri build` creates installers by default, because bundling is turned on in `src-tauri/tauri.conf.json`. For a release build without an installer, run `pnpm tauri build --no-bundle`.

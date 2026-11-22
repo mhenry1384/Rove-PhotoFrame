@@ -40,19 +40,19 @@ When the app is unfocused, it can periodically raise itself to the foreground wi
 ### Install dependencies
 
 ```bash
-npm install
+pnpm install
 ```
 
 ### Run in development
 
 ```bash
-npm run tauri dev
+pnpm tauri dev
 ```
 
 ### Build for production
 
 ```bash
-npm run tauri build
+pnpm tauri build
 ```
 
 ## Usage
